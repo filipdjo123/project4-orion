@@ -1,0 +1,46 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+
+# ---- IDE / Editor files ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ---- Logs ----
+*.log
+
+# ---- OS files ----
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ---- FastAPI / app generated ----
+*.sqlite
+*.pid
+
+# ---- Uploaded videos (huge files, do not track) ----
+afl-vision-insight/backend/uploaded_videos/
+afl-vision-insight/player_tracking_service/uploaded_videos/
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# ---- Other large artifacts ----
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# ---- Docker ----
+*.pid
+*.seed
+*.bak

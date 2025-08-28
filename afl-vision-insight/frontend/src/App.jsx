@@ -65,15 +65,46 @@ const Dashboard = memo(function Dashboard({
   const [analysisComplete, setAnalysisComplete] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
   const [analysisResults, setAnalysisResults] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
 
-  const handleVideoUpload = (event) => {
-    const file = event.target.files[0]
-    if (file && file.type.startsWith('video/')) {
-      setUploadedVideo(file)
-      setAnalysisComplete(false)
-      setAnalysisResults(null)
-    }
+
+  // Add new state to store backend videoId
+const [videoId, setVideoId] = useState(null)
+
+const handleVideoUpload = async (event) => {
+  const file = event.target.files[0]
+  if (!file || !file.type.startsWith("video/")) return
+
+  setUploadedVideo(file)
+  setAnalysisComplete(false)
+  setAnalysisResults(null)
+  setIsUploading(true)   // 🚀 uploading started
+
+  try {
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const res = await fetch("http://127.0.0.1:8000/api/v1/upload", {
+      method: "POST",
+      body: formData,
+    })
+
+    if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`)
+
+    const data = await res.json()
+    console.log("✅ Upload response:", data)
+
+    setVideoId(data.id)   // ✅ save backend id
+
+    alert("Video uploaded successfully! Video ID: " + videoId);
+  } catch (err) {
+    console.error("Upload error:", err)
+    alert("Upload failed, check backend logs")
+  } finally {
+    setIsUploading(false)   // ✅ uploading finished (success or error)
   }
+}
+
 
   const startAnalysis = async () => {
     if (!uploadedVideo) return
@@ -195,8 +226,15 @@ const Dashboard = memo(function Dashboard({
               <p>Upload your match video to get comprehensive analysis and insights</p>
             </div>
           </div>
-          
-          {!uploadedVideo ? (
+           
+           {isUploading ? (
+              <div className="uploading-state">
+                <div className="spinner"></div>
+                <h3>Uploading video...</h3>
+                <p>Please wait until the upload is complete.</p>
+              </div>
+            ) : !uploadedVideo ? (   
+
             <div className="upload-area">
               <div className="upload-zone">
                 <Upload size={48} />

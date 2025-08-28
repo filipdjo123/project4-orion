@@ -47,19 +47,13 @@ class InferenceRequest(BaseModel):
 # Helpers
 # -------------------------------
 def _resolve_upload_abs_path(rec: Dict[str, Any]) -> Path:
-    """
-    rec['path'] is a relative path inside backend/ (e.g., 'uploaded_videos/<id>.mp4').
-    Resolve to an absolute path on disk.
-    """
+    """Resolve upload record relative path into absolute backend path."""
     backend_dir = Path(__file__).resolve().parents[1]  # backend/
     return (backend_dir / str(rec["path"]).lstrip("/\\")).resolve()
 
 
 def _webify_rel_path(relpath: str) -> str:
-    """
-    Turn 'heatmaps\\file.jpg' or 'heatmaps/file.jpg' -> '/static/heatmaps/file.jpg'
-    If relpath already contains 'heatmaps', strip up to it; otherwise just join the basename.
-    """
+    """Turn disk-ish path into web URL under /static/heatmaps."""
     relpath = (relpath or "").replace("\\", "/")
     if "heatmaps/" in relpath:
         rel_tail = relpath.split("heatmaps/", 1)[1]
@@ -68,27 +62,60 @@ def _webify_rel_path(relpath: str) -> str:
     return f"{HEATMAPS_WEB_PREFIX}/{rel_tail}" if rel_tail else ""
 
 
-def _normalize_crowd_payload(svc_json: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Map heatmap_path (disk-ish) -> heatmap_url (web), keep other fields as-is.
-    Does not mutate the input.
-    """
-    results_out = []
-    for r in svc_json.get("results", []):
-        heatmap_path = r.get("heatmap_path") or ""
-        results_out.append({
-            "frame_index": r.get("frame_index"),
+# -------------------------------
+# Summarizers
+# -------------------------------
+def _summarize_player_payload(svc_json: Dict[str, Any]) -> Dict[str, Any]:
+    video_info = svc_json.get("video_info", {})
+    tracking_results = svc_json.get("tracking_results", [])
+
+    player_conf = {}
+    for frame in tracking_results:
+        for p in frame.get("players", []):
+            pid = p.get("player_id")
+            if pid not in player_conf:
+                player_conf[pid] = []
+            player_conf[pid].append(p.get("confidence", 0))
+
+    player_summary = [
+        {
+            "player_id": pid,
+            "avg_confidence": round(sum(confs)/len(confs), 3),
+            "detections": len(confs),
+        }
+        for pid, confs in player_conf.items()
+    ]
+
+    return {
+        "model": svc_json.get("model", "player_tracker_v0"),
+        "video_info": video_info,
+        "total_players": len(player_summary),
+        "players": player_summary
+    }
+
+
+def _summarize_crowd_payload(svc_json: Dict[str, Any]) -> Dict[str, Any]:
+    summary = svc_json.get("summary", {})
+    results = svc_json.get("results", [])
+
+    heatmaps = [
+        {
             "timestamp_s": r.get("timestamp_s"),
             "count": r.get("count"),
-            "heatmap_url": _webify_rel_path(str(heatmap_path)) if heatmap_path else None,
-            "extras": r.get("extras", {}),
-        })
+            "heatmap_url": _webify_rel_path(r.get("heatmap_url", "")),
+        }
+        for r in results
+    ]
 
     return {
         "model": svc_json.get("model", "crowd_monitor_v0"),
         "video_info": svc_json.get("video_info", {}),
-        "results": results_out,
-        "summary": svc_json.get("summary", {}),
+        "summary": {
+            "avg_count": summary.get("avg_count"),
+            "max_count": summary.get("max_count"),
+            "min_count": summary.get("min_count"),
+        },
+        "heatmaps": heatmaps
     }
 
 
@@ -147,16 +174,17 @@ async def run_inference(req: InferenceRequest):
 
         svc_json = resp.json()
 
-        # 4) Normalize/return
-        normalized = _normalize_crowd_payload(svc_json) if req.task == "crowd" else svc_json
+        # 4) Summarize results
+        if req.task == "crowd":
+            summarized = _summarize_crowd_payload(svc_json)
+        else:
+            summarized = _summarize_player_payload(svc_json)
 
         return {
             "id": rec["id"],
             "task": req.task,
-            "input_path": str(abs_path),
             "status": "ok",
-            "model": normalized.get("model", "unknown"),
-            "data": normalized,  # full model output (tracks / heatmaps / summary)
+            "data": summarized,
         }
 
     except HTTPException:

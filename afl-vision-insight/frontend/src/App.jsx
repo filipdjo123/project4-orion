@@ -107,54 +107,56 @@ const handleVideoUpload = async (event) => {
 
 
   const startAnalysis = async () => {
-    if (!uploadedVideo) return
-    
-    setIsAnalyzing(true)
-    setAnalysisProgress(0)
-    
-    // Simulate analysis progress
-    const interval = setInterval(() => {
-      setAnalysisProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsAnalyzing(false)
-          setAnalysisComplete(true)
-          // Generate mock analysis results
-          setAnalysisResults({
-            matchDuration: '2:15:30',
-            totalPlayers: 36,
-            goals: 12,
-            assists: 8,
-            possession: { teamA: 58, teamB: 42 },
-            playerStats: [
-              { name: 'Player A', goals: 3, assists: 2, distance: '8.5km', speed: '12.3km/h' },
-              { name: 'Player B', goals: 2, assists: 1, distance: '7.8km', speed: '11.9km/h' },
-              { name: 'Player C', goals: 1, assists: 3, distance: '9.2km', speed: '13.1km/h' }
-            ],
-            crowdDensity: {
-              peak: 1500,
-              average: 1200,
-              zones: [
-                { zone: 'North Stand', density: 85, capacity: 500 },
-                { zone: 'South Stand', density: 72, capacity: 500 },
-                { zone: 'East Stand', density: 68, capacity: 400 },
-                { zone: 'West Stand', density: 75, capacity: 400 }
-              ]
-            },
-            keyEvents: [
-              { time: '00:15:30', event: 'Goal by Team A', player: 'Player A' },
-              { time: '00:28:45', event: 'Yellow Card', player: 'Player B' },
-              { time: '00:45:12', event: 'Goal by Team B', player: 'Player C' },
-              { time: '01:12:33', event: 'Goal by Team A', player: 'Player A' },
-              { time: '01:45:20', event: 'Red Card', player: 'Player D' }
-            ]
-          })
-          return 100
-        }
-        return prev + Math.random() * 15
-      })
-    }, 500)
+  if (!uploadedVideo || !videoId) return;
+
+  setIsAnalyzing(true);
+  setAnalysisProgress(0);
+
+  try {
+    // --- Call Player Model ---
+    const playerRes = await fetch("http://127.0.0.1:8000/api/v1/inference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: "player", id: videoId })
+    });
+    const playerData = await playerRes.json();
+
+    // --- Call Crowd Model ---
+    const crowdRes = await fetch("http://127.0.0.1:8000/api/v1/inference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: "crowd", id: videoId })
+    });
+    const crowdData = await crowdRes.json();
+
+    // ✅ Combine both results for frontend
+    const combinedResults = {
+      matchDuration: playerData.data.video_info.duration + "s",
+      totalPlayers: playerData.data.total_players,
+      playerStats: playerData.data.players.map(p => ({
+        name: `Player ${p.player_id}`,
+        confidence: (p.avg_confidence * 100).toFixed(1) + "%",
+        detections: p.detections
+      })),
+      crowdDensity: {
+        peak: crowdData.data.summary.max_count,
+        average: Math.round(crowdData.data.summary.avg_count),
+        min: crowdData.data.summary.min_count,
+        heatmaps: crowdData.data.heatmaps
+      }
+    };
+
+    setAnalysisResults(combinedResults);
+    setAnalysisComplete(true);
+  } catch (err) {
+    console.error("Analysis error:", err);
+    alert("Analysis failed. Check backend logs.");
+  } finally {
+    setIsAnalyzing(false);
+    setAnalysisProgress(100);
   }
+};
+
 
   const resetAnalysis = () => {
     setUploadedVideo(null)
@@ -317,128 +319,109 @@ const handleVideoUpload = async (event) => {
               )}
 
               {analysisComplete && analysisResults && (
-                <div className="analysis-results">
-                  <div className="results-header">
-                    <h3>Analysis Complete!</h3>
-                    <p>Comprehensive match analysis results</p>
-                  </div>
-                  
-                  <div className="results-grid">
-                    <div className="result-card">
-                      <h4>Match Overview</h4>
-                      <div className="result-stats">
-                        <div className="stat">
-                          <span className="label">Duration:</span>
-                          <span className="value">{analysisResults.matchDuration}</span>
-                        </div>
-                        <div className="stat">
-                          <span className="label">Total Players:</span>
-                          <span className="value">{analysisResults.totalPlayers}</span>
-                        </div>
-                        <div className="stat">
-                          <span className="label">Goals:</span>
-                          <span className="value">{analysisResults.goals}</span>
-                        </div>
-                        <div className="stat">
-                          <span className="label">Assists:</span>
-                          <span className="value">{analysisResults.assists}</span>
-                        </div>
-                      </div>
-                    </div>
+  <div className="analysis-results">
+    <div className="results-header">
+      <h3>Analysis Complete!</h3>
+      <p>Comprehensive match analysis results</p>
+    </div>
 
-                    <div className="result-card">
-                      <h4>Possession</h4>
-                      <div className="possession-chart">
-                        <div className="possession-bar">
-                          <div 
-                            className="team-a" 
-                            style={{ width: `${analysisResults.possession.teamA}%` }}
-                          >
-                            <span>Team A: {analysisResults.possession.teamA}%</span>
-                          </div>
-                          <div 
-                            className="team-b" 
-                            style={{ width: `${analysisResults.possession.teamB}%` }}
-                          >
-                            <span>Team B: {analysisResults.possession.teamB}%</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+    <div className="results-grid">
+      {/* Match Overview */}
+      <div className="result-card">
+        <h4>Match Overview</h4>
+        <div className="result-stats">
+          <div className="stat">
+            <span className="label">Duration:</span>
+            <span className="value">{analysisResults.matchDuration || "N/A"}</span>
+          </div>
+          <div className="stat">
+            <span className="label">FPS:</span>
+            <span className="value">{analysisResults.fps || "N/A"}</span>
+          </div>
+          <div className="stat">
+            <span className="label">Resolution:</span>
+            <span className="value">
+              {analysisResults.resolution
+                ? `${analysisResults.resolution[0]} x ${analysisResults.resolution[1]}`
+                : "N/A"}
+            </span>
+          </div>
+          <div className="stat">
+            <span className="label">Total Players Detected:</span>
+            <span className="value">{analysisResults.totalPlayers || 0}</span>
+          </div>
+        </div>
+      </div>
 
-                    <div className="result-card">
-                      <h4>Top Performers</h4>
-                      <div className="player-list">
-                        {analysisResults.playerStats.map((player, index) => (
-                          <div key={index} className="player-stat">
-                            <div className="player-name">{player.name}</div>
-                            <div className="player-metrics">
-                              <span>⚽ {player.goals} goals</span>
-                              <span>🎯 {player.assists} assists</span>
-                              <span>🏃 {player.distance}</span>
-                              <span>⚡ {player.speed}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="result-card">
-                      <h4>Crowd Analysis</h4>
-                      <div className="crowd-stats">
-                        <div className="crowd-metric">
-                          <span className="label">Peak Attendance:</span>
-                          <span className="value">{analysisResults.crowdDensity.peak.toLocaleString()}</span>
-                        </div>
-                        <div className="crowd-metric">
-                          <span className="label">Average Attendance:</span>
-                          <span className="value">{analysisResults.crowdDensity.average.toLocaleString()}</span>
-                        </div>
-                      </div>
-                      <div className="zone-list">
-                        {analysisResults.crowdDensity.zones.map((zone, index) => (
-                          <div key={index} className="zone-item">
-                            <span className="zone-name">{zone.zone}</span>
-                            <div className="zone-bar">
-                              <div 
-                                className="zone-fill" 
-                                style={{ width: `${zone.density}%` }}
-                              ></div>
-                            </div>
-                            <span className="zone-density">{zone.density}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="key-events">
-                    <h4>Key Match Events</h4>
-                    <div className="events-timeline">
-                      {analysisResults.keyEvents.map((event, index) => (
-                        <div key={index} className="event-item">
-                          <div className="event-time">{event.time}</div>
-                          <div className="event-content">
-                            <div className="event-title">{event.event}</div>
-                            <div className="event-player">{event.player}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="results-actions">
-                    <button className="action-btn primary">
-                      <Download size={16} />
-                      Download Full Report
-                    </button>
-                    <button className="action-btn">
-                      <BarChart3 size={16} />
-                      View Detailed Analytics
-                    </button>
-                  </div>
+      {/* Player Tracking */}
+      <div className="result-card">
+        <h4>Player Tracking Results</h4>
+        <div className="player-list">
+          {analysisResults.playerStats && analysisResults.playerStats.length > 0 ? (
+            analysisResults.playerStats.map((player, index) => (
+              <div key={index} className="player-stat">
+                <div className="player-name">Player {player.player_id}</div>
+                <div className="player-metrics">
+                  <span>📊 Detections: {player.detections}</span>
+                  <span>🎯 Avg Confidence: {(player.avg_confidence * 100).toFixed(1)}%</span>
                 </div>
-              )}
+              </div>
+            ))
+          ) : (
+            <p>No player tracking data available.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Crowd Analysis */}
+      <div className="result-card">
+        <h4>Crowd Analysis</h4>
+        <div className="crowd-stats">
+          <div className="crowd-metric">
+            <span className="label">Average Count:</span>
+            <span className="value">{analysisResults.crowdDensity?.average || 0}</span>
+          </div>
+          <div className="crowd-metric">
+            <span className="label">Peak Count:</span>
+            <span className="value">{analysisResults.crowdDensity?.peak || 0}</span>
+          </div>
+          <div className="crowd-metric">
+            <span className="label">Minimum Count:</span>
+            <span className="value">{analysisResults.crowdDensity?.min || 0}</span>
+          </div>
+        </div>
+
+        <div className="zone-list">
+          {analysisResults.crowdDensity?.zones?.map((zone, index) => (
+            <div key={index} className="zone-item">
+              <span className="zone-name">{zone.zone}</span>
+              <div className="zone-bar">
+                <div
+                  className="zone-fill"
+                  style={{ width: `${Math.min(zone.density / analysisResults.crowdDensity.peak * 100, 100)}%` }}
+                ></div>
+              </div>
+              <span className="zone-density">{zone.density}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* Actions */}
+    <div className="results-actions">
+      <button className="action-btn primary">
+        <Download size={16} />
+        Download Full Report
+      </button>
+      <button className="action-btn">
+        <BarChart3 size={16} />
+        View Detailed Analytics
+      </button>
+    </div>
+  </div>
+)}
+
             </div>
           )}
         </div>

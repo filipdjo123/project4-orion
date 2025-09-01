@@ -49,3 +49,11 @@ afl-vision-insight/player_tracking_service/uploaded_videos/
 # Ignore generated heatmaps
 afl-vision-insight/crowd_monitoring_service/heatmaps/*
 afl-vision-insight/backend/static/heatmaps/*
+
+@'
+.venv/
+venv/
+**/__pycache__/
+afl-vision-insight/backend/data/
+afl-vision-insight/backend/.env
+'@ | Out-File -Encoding utf8 -Append .gitignore

@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 
 from sqlalchemy import create_engine, func, String, Integer, DateTime, JSON, select, UniqueConstraint
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Mapped, mapped_column
+from config.security import hash_password, verify_password
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -50,31 +51,16 @@ class Inference(Base):
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
-    id: Mapped[str] = mapped_column(UUID_TYPE, primary_key=True, default=UUID_DEFAULT)
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
 
 Base.metadata.create_all(bind=engine)
-
-def create_user(email: str, hashed_password: str) -> dict:
-    with _db() as db:
-        user = User(email=email.lower().strip(), hashed_password=hashed_password)
-        db.add(user); db.commit(); db.refresh(user)
-        return {"id": str(user.id), "email": user.email, "created_at": user.created_at.isoformat()}
-
-def get_user_by_email(email: str) -> Optional[User]:
-    with _db() as db:
-        stmt = select(User).where(User.email == email.lower().strip())
-        row = db.execute(stmt).scalar_one_or_none()
-        return row
-
-def get_user_by_id(user_id: str) -> Optional[User]:
-    with _db() as db:
-        key = user_id if IS_SQLITE else uuid.UUID(user_id)
-        stmt = select(User).where(User.id == key)
-        row = db.execute(stmt).scalar_one_or_none()
-        return row
 
 def _db():
     return SessionLocal()
@@ -155,3 +141,38 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
         conn.exec_driver_sql("SELECT 1")
+
+#-- authentication specific functions --#
+def create_user(username: str | None, password: str, email: str) -> dict:
+    with _db() as db:
+        norm_email = email.lower().strip()
+        existing = db.scalar(select(User).where(User.email == norm_email))
+        if existing:
+            raise ValueError("Email already registered")
+
+        hpw = hash_password(password)
+        user = User(email=norm_email, hashed_password=hpw)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        return {
+            "id": user.id,
+            "email": user.email,
+            "created_at": user.created_at.isoformat(),
+        }
+
+
+def get_user_by_email(email: str) -> Optional[User]:
+    with _db() as db:
+        return db.scalar(select(User).where(User.email == email.lower().strip()))
+
+def get_user_by_id(user_id: str | int) -> Optional[User]:
+    with _db() as db:
+        return db.get(User, int(user_id))
+
+def authenticate_user_by_email(email: str, password: str) -> Optional["User"]:
+    u = get_user_by_email(email)
+    if not u:
+        return None
+    return u if verify_password(password, u.hashed_password) else None

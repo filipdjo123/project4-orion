@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request
-from routes import upload, inference, metrics
+from routes import upload, inference, metrics, analytics
+from routes import auth 
 from config.cors import add_cors
 from storage import init_db
 
@@ -57,3 +58,5 @@ def read_root():
 app.include_router(upload.router,    prefix="/api/v1/upload",   tags=["Upload"])
 app.include_router(inference.router, prefix="/api/v1/inference", tags=["Inference"])
 app.include_router(metrics.router,   prefix="/api/v1/metrics",  tags=["Metrics"])
+app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
+app.include_router(auth.router,      prefix="/api/v1/auth",     tags=["Auth"])
